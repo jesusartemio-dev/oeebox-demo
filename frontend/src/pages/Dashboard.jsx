@@ -985,12 +985,16 @@ export default function Dashboard() {
   const [showManualModal, setShowManualModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [license, setLicense] = useState(null);
+  const [plantInfo, setPlantInfo] = useState(null);
 
-  // Fetch license status
+  // Fetch license status + plant info
   useEffect(() => {
     client.get('/license/status')
       .then(r => setLicense(r.data))
       .catch(() => setLicense({ valid: false, reason: 'No se pudo verificar licencia' }));
+    client.get('/config/plant-info')
+      .then(r => setPlantInfo(r.data))
+      .catch(() => {});
   }, []);
 
   function showToast(message, type = 'success') {
@@ -1041,7 +1045,7 @@ export default function Dashboard() {
           <Factory size={24} className="text-blue-500" />
           <span className="text-xl font-bold">OEE Box</span>
           <span className="text-gray-500 hidden sm:inline">|</span>
-          <span className="text-gray-400 text-sm hidden sm:inline">Planta Industrial</span>
+          <span className="text-gray-400 text-sm hidden sm:inline">{plantInfo?.plantName || '...'}</span>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">

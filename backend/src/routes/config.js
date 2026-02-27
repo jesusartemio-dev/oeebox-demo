@@ -4,6 +4,14 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
+// ── Rutas públicas (sin auth) ─────────────────────────────
+router.get('/plant-info', (req, res) => {
+  res.json({
+    plantName: process.env.PLANT_NAME || 'Planta Industrial',
+    companyName: process.env.COMPANY_NAME || 'OEE Box',
+  });
+});
+
 // Middleware: verificar rol admin
 function adminOnly(req, res, next) {
   if (req.user.role !== 'admin') {
@@ -12,7 +20,7 @@ function adminOnly(req, res, next) {
   next();
 }
 
-// Aplicar auth + adminOnly a todas las rutas
+// Aplicar auth + adminOnly a todas las rutas siguientes
 router.use(auth, adminOnly);
 
 // ═══════════════════════════════════════════════════════════

@@ -197,7 +197,7 @@ function WorkcellCard({ wc }) {
 }
 
 // ── Vista: Todas las workcells ────────────────────────────
-function AndonGrid({ workcells }) {
+function AndonGrid({ workcells, plantInfo }) {
   const clock = useClock();
 
   const gridClass = useMemo(() => {
@@ -207,11 +207,15 @@ function AndonGrid({ workcells }) {
     return 'grid-cols-2';
   }, [workcells.length]);
 
+  const headerTitle = plantInfo
+    ? `${plantInfo.companyName} | ${plantInfo.plantName}`
+    : '...';
+
   return (
     <div className="min-h-screen bg-black flex flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 shrink-0">
-        <span className="text-white text-2xl font-bold tracking-wider">OEE Box</span>
+        <span className="text-white text-2xl font-bold tracking-wider">{headerTitle}</span>
         <span className="text-white text-xl font-mono tracking-wide">{clock}</span>
       </header>
 
@@ -302,10 +306,25 @@ function AndonSingle({ wc }) {
   );
 }
 
+// ── Hook para plant info (sin auth) ──────────────────────
+function usePlantInfo() {
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/config/plant-info')
+      .then(r => r.json())
+      .then(setInfo)
+      .catch(() => {});
+  }, []);
+
+  return info;
+}
+
 // ── Componente principal ──────────────────────────────────
 export default function Andon() {
   const { code } = useParams();
   const { data: workcells, connected } = useAndonWebSocket();
+  const plantInfo = usePlantInfo();
 
   // Single workcell mode
   if (code) {
@@ -341,7 +360,7 @@ export default function Andon() {
   return (
     <>
       <FullscreenBtn />
-      <AndonGrid workcells={workcells} />
+      <AndonGrid workcells={workcells} plantInfo={plantInfo} />
     </>
   );
 }
