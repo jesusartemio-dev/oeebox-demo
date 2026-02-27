@@ -7,7 +7,7 @@ import {
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
   XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus, Settings, FileText,
-  ShieldCheck, ShieldOff,
+  ShieldCheck, ShieldOff, Monitor,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -1052,6 +1052,16 @@ export default function Dashboard() {
               {wsConnected ? 'Conectado' : 'Desconectado'}
             </span>
           </div>
+          <a
+            href="/andon"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white text-sm rounded-lg transition-colors"
+            title="Abrir Andon Board en nueva pestaña"
+          >
+            <Monitor size={14} />
+            <span className="hidden sm:inline">Andon</span>
+          </a>
           {selectedWcId && (
             <button
               onClick={() => setShowReportModal(true)}
