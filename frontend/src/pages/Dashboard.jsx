@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
-  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus,
+  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus, Settings,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -939,6 +939,11 @@ export default function Dashboard() {
             </span>
           </div>
           {user && <span className="text-sm text-gray-400">{user.username}</span>}
+          {user?.role === 'admin' && (
+            <button onClick={() => navigate('/config')} className="text-gray-400 hover:text-white transition-colors" title="Configuración">
+              <Settings size={18} />
+            </button>
+          )}
           <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors" title="Cerrar sesión">
             <LogOut size={18} />
           </button>

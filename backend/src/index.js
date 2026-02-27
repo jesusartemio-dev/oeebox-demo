@@ -18,6 +18,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/workcells', require('./routes/workcells'));
 app.use('/api/oee', require('./routes/oee'));
 app.use('/api/events', require('./routes/events'));
+app.use('/api/config', require('./routes/config'));
 
 // Health check
 app.get('/api/health', (req, res) => {
