@@ -32,6 +32,16 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// Simulator (solo en desarrollo con ENABLE_SIMULATOR=true)
+if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SIMULATOR === 'true') {
+  const { startSimulator } = require('./engine/simulator');
+  startSimulator();
+}
+
+// OEE Engine
+const { startEngine } = require('./engine/oee-calculator');
+startEngine();
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {

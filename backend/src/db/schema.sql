@@ -219,13 +219,13 @@ ON CONFLICT (code) DO NOTHING;
 -- Shifts – 3 turnos por workcell
 INSERT INTO shifts (workcell_id, shift_number, name, start_time, end_time, active_days) VALUES
   -- L01 Ensamble
-  ((SELECT id FROM workcells WHERE code = 'L01'), 1, 'Matutino',    '06:00', '14:00', '{1,2,3,4,5}'),
-  ((SELECT id FROM workcells WHERE code = 'L01'), 2, 'Vespertino',  '14:00', '22:00', '{1,2,3,4,5}'),
-  ((SELECT id FROM workcells WHERE code = 'L01'), 3, 'Nocturno',    '22:00', '06:00', '{1,2,3,4,5}'),
+  ((SELECT id FROM workcells WHERE code = 'L01'), 1, 'Turno A',    '06:00', '14:00', '{1,2,3,4,5}'),
+  ((SELECT id FROM workcells WHERE code = 'L01'), 2, 'Turno B',    '14:00', '22:00', '{1,2,3,4,5}'),
+  ((SELECT id FROM workcells WHERE code = 'L01'), 3, 'Turno C',    '22:00', '06:00', '{1,2,3,4,5}'),
   -- L02 Soldadura
-  ((SELECT id FROM workcells WHERE code = 'L02'), 1, 'Matutino',    '06:00', '14:00', '{1,2,3,4,5}'),
-  ((SELECT id FROM workcells WHERE code = 'L02'), 2, 'Vespertino',  '14:00', '22:00', '{1,2,3,4,5}'),
-  ((SELECT id FROM workcells WHERE code = 'L02'), 3, 'Nocturno',    '22:00', '06:00', '{1,2,3,4,5}')
+  ((SELECT id FROM workcells WHERE code = 'L02'), 1, 'Turno A',    '06:00', '14:00', '{1,2,3,4,5}'),
+  ((SELECT id FROM workcells WHERE code = 'L02'), 2, 'Turno B',    '14:00', '22:00', '{1,2,3,4,5}'),
+  ((SELECT id FROM workcells WHERE code = 'L02'), 3, 'Turno C',    '22:00', '06:00', '{1,2,3,4,5}')
 ON CONFLICT (workcell_id, shift_number) DO NOTHING;
 
 -- Part numbers – 2 por workcell
