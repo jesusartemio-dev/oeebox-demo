@@ -114,4 +114,76 @@ router.put('/:eventId/classify', auth, async (req, res) => {
   }
 });
 
+// POST /api/events/:workcellId/manual
+const ALLOWED_EVENT_TYPES = ['fault', 'starved', 'blocked', 'changeover', 'planned', 'unplanned'];
+
+router.post('/:workcellId/manual', auth, async (req, res) => {
+  try {
+    const workcellId = parseInt(req.params.workcellId, 10);
+    if (isNaN(workcellId)) {
+      return res.status(400).json({ error: 'workcellId inválido' });
+    }
+
+    const { event_type, reason_code, reason_label, comment } = req.body;
+
+    if (!event_type || !ALLOWED_EVENT_TYPES.includes(event_type)) {
+      return res.status(400).json({
+        error: `event_type inválido. Debe ser uno de: ${ALLOWED_EVENT_TYPES.join(', ')}`,
+      });
+    }
+
+    if (!reason_label || reason_label.trim() === '') {
+      return res.status(400).json({ error: 'reason_label es requerido' });
+    }
+
+    const { rows } = await query(`
+      INSERT INTO events (workcell_id, started_at, event_type, reason_code, reason_label, comment, source)
+      VALUES ($1, NOW(), $2, $3, $4, $5, 'manual')
+      RETURNING *
+    `, [workcellId, event_type, reason_code || null, reason_label.trim(), comment || null]);
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/events/:workcellId/manual error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// PUT /api/events/:eventId/close
+router.put('/:eventId/close', auth, async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.eventId, 10);
+    if (isNaN(eventId)) {
+      return res.status(400).json({ error: 'eventId inválido' });
+    }
+
+    // Verificar que el evento existe y está abierto
+    const { rows: existing } = await query(
+      'SELECT id, ended_at FROM events WHERE id = $1',
+      [eventId]
+    );
+
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Evento no encontrado' });
+    }
+
+    if (existing[0].ended_at !== null) {
+      return res.status(400).json({ error: 'El evento ya está cerrado' });
+    }
+
+    const { rows } = await query(`
+      UPDATE events SET
+        ended_at = NOW(),
+        duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))
+      WHERE id = $1
+      RETURNING *
+    `, [eventId]);
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PUT /api/events/:eventId/close error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 module.exports = router;

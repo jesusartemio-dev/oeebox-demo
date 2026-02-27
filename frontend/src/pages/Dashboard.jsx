@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
-  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare,
+  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -83,7 +83,7 @@ function Tabs({ tabs, active, onChange }) {
 }
 
 // ── Overview Tab ───────────────────────────────────────────
-function OverviewTab({ wc }) {
+function OverviewTab({ wc, onOpenManualModal }) {
   const [todayData, setTodayData] = useState({ runMins: 0, availMins: 0 });
 
   useEffect(() => {
@@ -156,6 +156,15 @@ function OverviewTab({ wc }) {
           color={wc.connected ? 'text-green-400' : 'text-red-400'}
         />
       </div>
+
+      {/* Floating button */}
+      <button
+        onClick={onOpenManualModal}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg shadow-red-600/30 flex items-center justify-center transition-colors z-40"
+        title="Registrar Paro Manual"
+      >
+        <Plus size={28} />
+      </button>
     </div>
   );
 }
@@ -268,6 +277,7 @@ const EVENT_TYPE_STYLES = {
   blocked: { bg: 'bg-blue-500/10', text: 'text-blue-400', badge: 'bg-blue-500/20 text-blue-400', label: 'Bloqueado' },
   changeover: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', badge: 'bg-yellow-500/20 text-yellow-400', label: 'Cambio' },
   planned: { bg: 'bg-green-500/10', text: 'text-green-400', badge: 'bg-green-500/20 text-green-400', label: 'Planeado' },
+  unplanned: { bg: 'bg-gray-500/10', text: 'text-gray-400', badge: 'bg-gray-500/20 text-gray-400', label: 'Sin clasificar' },
 };
 
 const SOURCE_BADGE = {
@@ -284,8 +294,29 @@ function formatDuration(seconds) {
   return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
 }
 
+// ── Toast Notification ────────────────────────────────────
+function Toast({ message, type, visible, onHide }) {
+  useEffect(() => {
+    if (visible) {
+      const t = setTimeout(onHide, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [visible, onHide]);
+
+  if (!visible) return null;
+
+  const bg = type === 'error' ? 'bg-red-600' : 'bg-green-600';
+
+  return (
+    <div className={`fixed top-4 right-4 z-[60] ${bg} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 transition-opacity`}>
+      {type === 'error' ? <XCircle size={18} /> : <CheckCircle size={18} />}
+      <span className="text-sm font-medium">{message}</span>
+    </div>
+  );
+}
+
 // ── Classify Modal ─────────────────────────────────────────
-function ClassifyModal({ eventId, onClose, onSaved }) {
+function ClassifyModal({ eventId, onClose, onSaved, onToast }) {
   const [reasonCodes, setReasonCodes] = useState([]);
   const [selectedCode, setSelectedCode] = useState('');
   const [comment, setComment] = useState('');
@@ -317,9 +348,10 @@ function ClassifyModal({ eventId, onClose, onSaved }) {
         reason_label: rc?.label || selectedCode,
         comment: comment || null,
       });
+      if (onToast) onToast('Evento clasificado correctamente', 'success');
       onSaved();
     } catch {
-      // error silently
+      if (onToast) onToast('Error al clasificar evento', 'error');
     } finally {
       setSaving(false);
     }
@@ -378,6 +410,130 @@ function ClassifyModal({ eventId, onClose, onSaved }) {
   );
 }
 
+// ── Manual Stop Modal ─────────────────────────────────────
+const MANUAL_EVENT_TYPES = [
+  { value: 'fault', label: 'Falla' },
+  { value: 'starved', label: 'Sin Material' },
+  { value: 'blocked', label: 'Bloqueado' },
+  { value: 'changeover', label: 'Cambio de referencia' },
+  { value: 'planned', label: 'Mantenimiento planeado' },
+  { value: 'unplanned', label: 'Sin clasificar' },
+];
+
+function ManualStopModal({ workcellId, onClose, onSaved, onToast }) {
+  const [reasonCodes, setReasonCodes] = useState([]);
+  const [eventType, setEventType] = useState('');
+  const [selectedCode, setSelectedCode] = useState('');
+  const [reasonLabel, setReasonLabel] = useState('');
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    client.get('/events/reason-codes')
+      .then(r => setReasonCodes(r.data || []))
+      .catch(() => {});
+  }, []);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const rc of reasonCodes) {
+      if (!map[rc.category]) map[rc.category] = [];
+      map[rc.category].push(rc);
+    }
+    return map;
+  }, [reasonCodes]);
+
+  function handleReasonChange(code) {
+    setSelectedCode(code);
+    const rc = reasonCodes.find(r => r.code === code);
+    setReasonLabel(rc?.label || '');
+  }
+
+  async function handleSave() {
+    if (!eventType || !reasonLabel.trim()) return;
+    setSaving(true);
+    try {
+      await client.post(`/events/${workcellId}/manual`, {
+        event_type: eventType,
+        reason_code: selectedCode || null,
+        reason_label: reasonLabel.trim(),
+        comment: comment || null,
+      });
+      if (onToast) onToast('Paro registrado correctamente', 'success');
+      onSaved();
+    } catch {
+      if (onToast) onToast('Error al registrar paro', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-800 rounded-lg border border-gray-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">Registrar Paro Manual</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Tipo de paro</label>
+            <select
+              value={eventType}
+              onChange={e => setEventType(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Seleccionar tipo...</option>
+              {MANUAL_EVENT_TYPES.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Razón</label>
+            <select
+              value={selectedCode}
+              onChange={e => handleReasonChange(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Seleccionar razón...</option>
+              {Object.entries(grouped).map(([cat, codes]) => (
+                <optgroup key={cat} label={cat}>
+                  {codes.map(rc => (
+                    <option key={rc.code} value={rc.code}>{rc.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Comentario (opcional)</label>
+            <textarea
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              rows={3}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none resize-none"
+              placeholder="Descripción adicional..."
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-700">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!eventType || !reasonLabel.trim() || saving}
+            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 disabled:bg-red-600/50 text-white rounded transition-colors"
+          >
+            {saving ? 'Abriendo...' : 'Abrir Paro'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Eventos Tab ────────────────────────────────────────────
 const EVENT_FILTERS = [
   { key: 'all', label: 'Todos' },
@@ -386,7 +542,7 @@ const EVENT_FILTERS = [
   { key: 'other', label: 'Otros' },
 ];
 
-function EventsTab({ workcellId }) {
+function EventsTab({ workcellId, onOpenManualModal, onToast }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -398,6 +554,16 @@ function EventsTab({ workcellId }) {
       .then(r => setEvents(r.data || []))
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
+  }
+
+  async function handleCloseEvent(eventId) {
+    try {
+      await client.put(`/events/${eventId}/close`);
+      if (onToast) onToast('Paro cerrado correctamente', 'success');
+      fetchEvents();
+    } catch {
+      if (onToast) onToast('Error al cerrar paro', 'error');
+    }
   }
 
   useEffect(() => {
@@ -431,32 +597,52 @@ function EventsTab({ workcellId }) {
 
   if (events.length === 0) {
     return (
-      <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
-        <CheckCircle size={48} className="mx-auto mb-4 text-green-600" />
-        <p className="text-lg">Sin eventos registrados hoy</p>
-        <p className="text-sm mt-1">No se han detectado paros en esta workcell</p>
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <button
+            onClick={onOpenManualModal}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Registrar Paro
+          </button>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
+          <CheckCircle size={48} className="mx-auto mb-4 text-green-600" />
+          <p className="text-lg">Sin eventos registrados hoy</p>
+          <p className="text-sm mt-1">No se han detectado paros en esta workcell</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <p className="text-gray-400 text-sm">Total eventos</p>
-          <p className="text-2xl font-bold text-white">{summary.total}</p>
+      {/* Summary cards + manual button */}
+      <div className="flex items-start gap-4">
+        <div className="grid grid-cols-3 gap-4 flex-1">
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <p className="text-gray-400 text-sm">Total eventos</p>
+            <p className="text-2xl font-bold text-white">{summary.total}</p>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <p className="text-gray-400 text-sm">Sin clasificar</p>
+            <p className={`text-2xl font-bold ${summary.unclassified > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+              {summary.unclassified}
+            </p>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <p className="text-gray-400 text-sm">Tiempo paro total</p>
+            <p className="text-2xl font-bold text-red-400">{summary.downMins} min</p>
+          </div>
         </div>
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <p className="text-gray-400 text-sm">Sin clasificar</p>
-          <p className={`text-2xl font-bold ${summary.unclassified > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-            {summary.unclassified}
-          </p>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-          <p className="text-gray-400 text-sm">Tiempo paro total</p>
-          <p className="text-2xl font-bold text-red-400">{summary.downMins} min</p>
-        </div>
+        <button
+          onClick={onOpenManualModal}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shrink-0"
+        >
+          <Plus size={16} />
+          Registrar Paro
+        </button>
       </div>
 
       {/* Filter */}
@@ -517,14 +703,21 @@ function EventsTab({ workcellId }) {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${srcStyle}`}>{srcLabel}</span>
                   </td>
                   <td className="p-3">
-                    {!ev.reason_code && (
+                    {ev.source === 'manual' && !ev.ended_at ? (
+                      <button
+                        onClick={() => handleCloseEvent(ev.id)}
+                        className="px-2 py-1 text-xs bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded transition-colors"
+                      >
+                        Cerrar Paro
+                      </button>
+                    ) : !ev.reason_code ? (
                       <button
                         onClick={() => setClassifyId(ev.id)}
                         className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded transition-colors"
                       >
                         Clasificar
                       </button>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
               );
@@ -539,6 +732,7 @@ function EventsTab({ workcellId }) {
           eventId={classifyId}
           onClose={() => setClassifyId(null)}
           onSaved={() => { setClassifyId(null); fetchEvents(); }}
+          onToast={onToast}
         />
       )}
     </div>
@@ -684,6 +878,12 @@ export default function Dashboard() {
   const { data: wsData, connected: wsConnected } = useWebSocket();
   const [selectedWcId, setSelectedWcId] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [toast, setToast] = useState({ message: '', type: 'success', visible: false });
+  const [showManualModal, setShowManualModal] = useState(false);
+
+  function showToast(message, type = 'success') {
+    setToast({ message, type, visible: true });
+  }
 
   // Workcells list from WS
   const workcells = useMemo(() => {
@@ -800,9 +1000,9 @@ export default function Dashboard() {
                 <Tabs tabs={MAIN_TABS} active={activeTab} onChange={setActiveTab} />
               </div>
 
-              {activeTab === 'overview' && <OverviewTab wc={selectedWc} />}
+              {activeTab === 'overview' && <OverviewTab wc={selectedWc} onOpenManualModal={() => setShowManualModal(true)} />}
               {activeTab === 'trend' && <TrendTab workcellId={selectedWcId} />}
-              {activeTab === 'events' && <EventsTab workcellId={selectedWcId} />}
+              {activeTab === 'events' && <EventsTab workcellId={selectedWcId} onOpenManualModal={() => setShowManualModal(true)} onToast={showToast} />}
               {activeTab === 'pareto' && <ParetoTab workcellId={selectedWcId} />}
             </>
           ) : (
@@ -812,6 +1012,24 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {/* Manual Stop Modal */}
+      {showManualModal && selectedWcId && (
+        <ManualStopModal
+          workcellId={selectedWcId}
+          onClose={() => setShowManualModal(false)}
+          onSaved={() => setShowManualModal(false)}
+          onToast={showToast}
+        />
+      )}
+
+      {/* Toast */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        visible={toast.visible}
+        onHide={() => setToast(t => ({ ...t, visible: false }))}
+      />
     </div>
   );
 }
