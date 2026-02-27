@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
-  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus, Settings,
+  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus, Settings, FileText,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -865,6 +865,83 @@ function ParetoTab({ workcellId }) {
   );
 }
 
+// ── Report Modal ──────────────────────────────────────────
+function ReportModal({ workcellId, onClose, onToast }) {
+  const [period, setPeriod] = useState('day');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    if (onToast) onToast('Generando PDF...', 'success');
+    try {
+      const token = localStorage.getItem('oee_token');
+      const response = await fetch(`/api/reports/pdf/${workcellId}?period=${period}&date=${date}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Error al generar PDF');
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `OEE-reporte-${date}.pdf`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      if (onToast) onToast('PDF descargado', 'success');
+      onClose();
+    } catch {
+      if (onToast) onToast('Error al descargar PDF', 'error');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-800 rounded-lg border border-gray-700 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">Generar Reporte PDF</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Período</label>
+            <select
+              value={period}
+              onChange={e => setPeriod(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="shift">Turno actual</option>
+              <option value="day">Día completo</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Fecha</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-700">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+            Cancelar
+          </button>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded transition-colors flex items-center gap-2"
+          >
+            <FileText size={14} />
+            {downloading ? 'Generando...' : 'Descargar PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard ─────────────────────────────────────────
 const MAIN_TABS = [
   { key: 'overview', label: 'Overview' },
@@ -880,6 +957,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [toast, setToast] = useState({ message: '', type: 'success', visible: false });
   const [showManualModal, setShowManualModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   function showToast(message, type = 'success') {
     setToast({ message, type, visible: true });
@@ -938,6 +1016,16 @@ export default function Dashboard() {
               {wsConnected ? 'Conectado' : 'Desconectado'}
             </span>
           </div>
+          {selectedWcId && (
+            <button
+              onClick={() => setShowReportModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white text-sm rounded-lg transition-colors"
+              title="Generar Reporte PDF"
+            >
+              <FileText size={14} />
+              <span className="hidden sm:inline">Reporte</span>
+            </button>
+          )}
           {user && <span className="text-sm text-gray-400">{user.username}</span>}
           {user?.role === 'admin' && (
             <button onClick={() => navigate('/config')} className="text-gray-400 hover:text-white transition-colors" title="Configuración">
@@ -1017,6 +1105,15 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {/* Report Modal */}
+      {showReportModal && selectedWcId && (
+        <ReportModal
+          workcellId={selectedWcId}
+          onClose={() => setShowReportModal(false)}
+          onToast={showToast}
+        />
+      )}
 
       {/* Manual Stop Modal */}
       {showManualModal && selectedWcId && (
