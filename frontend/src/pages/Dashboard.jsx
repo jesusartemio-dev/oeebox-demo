@@ -1,0 +1,404 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, Cell,
+} from 'recharts';
+import {
+  Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
+  XCircle, Clock, Hash, Trash2, Zap,
+} from 'lucide-react';
+import useWebSocket from '../hooks/useWebSocket';
+import client from '../api/client';
+
+// ── Gauge SVG ──────────────────────────────────────────────
+function Gauge({ value = 0, label, size = 160 }) {
+  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
+  const color = pct >= 85 ? '#22c55e' : pct >= 65 ? '#eab308' : '#ef4444';
+  const r = (size - 20) / 2;
+  const cx = size / 2;
+  const cy = size / 2 + 10;
+  const circumference = Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
+        <path
+          d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none" stroke="#374151" strokeWidth="12" strokeLinecap="round"
+        />
+        <path
+          d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+          fill="none" stroke={color} strokeWidth="12" strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+        />
+        <text x={cx} y={cy - 15} textAnchor="middle" fill="white" fontSize="28" fontWeight="bold">
+          {pct}%
+        </text>
+      </svg>
+      <span className="text-gray-400 text-sm mt-1">{label}</span>
+    </div>
+  );
+}
+
+// ── KPI Card ───────────────────────────────────────────────
+function KpiCard({ icon: Icon, label, value, color = 'text-white' }) {
+  return (
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+      <div className="flex items-center gap-2 text-gray-400 text-sm mb-1">
+        <Icon size={16} />
+        <span>{label}</span>
+      </div>
+      <div className={`text-xl font-bold ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+// ── Status badge ───────────────────────────────────────────
+function MachineStatus({ running, fault }) {
+  if (fault) return <span className="flex items-center gap-1 text-red-400"><AlertTriangle size={16} /> Fault</span>;
+  if (running) return <span className="flex items-center gap-1 text-green-400"><CheckCircle size={16} /> Running</span>;
+  return <span className="flex items-center gap-1 text-yellow-400"><XCircle size={16} /> Stopped</span>;
+}
+
+// ── Tabs component ─────────────────────────────────────────
+function Tabs({ tabs, active, onChange }) {
+  return (
+    <div className="flex gap-1 bg-gray-800 rounded-lg p-1 border border-gray-700">
+      {tabs.map(t => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            active === t.key ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Overview Tab ───────────────────────────────────────────
+function OverviewTab({ wc }) {
+  const [todayData, setTodayData] = useState({ runMins: 0, availMins: 0 });
+
+  useEffect(() => {
+    if (!wc) return;
+
+    function fetchToday() {
+      client.get(`/oee/${wc.workcell_id}/today`)
+        .then(r => {
+          const rows = r.data || [];
+          const runMins = Math.round(rows.reduce((s, r) => s + Number(r.running_time || 0), 0) / 60);
+          const availMins = Math.round(rows.reduce((s, r) => s + Number(r.available_time || 0), 0) / 60);
+          setTodayData({ runMins, availMins });
+        })
+        .catch(() => {});
+    }
+
+    fetchToday();
+    const id = setInterval(fetchToday, 30000);
+    return () => clearInterval(id);
+  }, [wc?.workcell_id]);
+
+  if (!wc) return null;
+
+  const fmt = (v) => `${Math.round((v || 0) * 100)}%`;
+
+  return (
+    <div className="space-y-6">
+      {/* Gauges */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex justify-center">
+          <Gauge value={wc.oee} label="OEE" />
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex justify-center">
+          <Gauge value={wc.availability} label="Availability" />
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex justify-center">
+          <Gauge value={wc.performance} label="Performance" />
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex justify-center">
+          <Gauge value={wc.quality} label="Quality" />
+        </div>
+      </div>
+
+      {/* Formula */}
+      <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex items-center justify-center gap-3 text-lg flex-wrap">
+        <span className="font-bold text-blue-400">OEE {fmt(wc.oee)}</span>
+        <span className="text-gray-500">=</span>
+        <span className="text-green-400">{fmt(wc.availability)}</span>
+        <span className="text-gray-500">&times;</span>
+        <span className="text-purple-400">{fmt(wc.performance)}</span>
+        <span className="text-gray-500">&times;</span>
+        <span className="text-orange-400">{fmt(wc.quality)}</span>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <KpiCard icon={Hash} label="Partes Buenas" value={wc.raw_good_parts ?? 0} color="text-green-400" />
+        <KpiCard icon={Trash2} label="Scrap" value={wc.raw_scrap_parts ?? 0} color="text-red-400" />
+        <KpiCard icon={Clock} label="Tiempo Corriendo" value={`${todayData.runMins} min`} color="text-blue-400" />
+        <KpiCard icon={Clock} label="Tiempo Disponible" value={`${todayData.availMins} min`} color="text-cyan-400" />
+        <KpiCard
+          icon={Activity}
+          label="Estado Máquina"
+          value={<MachineStatus running={wc.machine_running} fault={wc.fault_active} />}
+        />
+        <KpiCard
+          icon={wc.connected ? Wifi : WifiOff}
+          label="Conexión PLC"
+          value={wc.connected ? 'Conectado' : 'Desconectado'}
+          color={wc.connected ? 'text-green-400' : 'text-red-400'}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Tendencia Tab ──────────────────────────────────────────
+function TrendTab({ workcellId }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!workcellId) return;
+    setLoading(true);
+    client.get(`/oee/${workcellId}/history`)
+      .then(r => setHistory(r.data.map(h => ({
+        hora: new Date(h.hora).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        OEE: Math.round((h.oee || 0) * 100),
+        Availability: Math.round((h.availability || 0) * 100),
+        Performance: Math.round((h.performance || 0) * 100),
+        Quality: Math.round((h.quality || 0) * 100),
+      }))))
+      .catch(() => setHistory([]))
+      .finally(() => setLoading(false));
+  }, [workcellId]);
+
+  if (loading) return <p className="text-gray-400">Cargando...</p>;
+  if (history.length === 0) return <p className="text-gray-400">Sin datos de tendencia</p>;
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: 400 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={history}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <XAxis dataKey="hora" tick={{ fill: '#9ca3af', fontSize: 12 }} angle={-30} textAnchor="end" height={60} />
+          <YAxis tick={{ fill: '#9ca3af' }} domain={[0, 100]} unit="%" />
+          <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8 }} />
+          <Legend />
+          <Line type="monotone" dataKey="OEE" stroke="#3b82f6" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="Availability" stroke="#22c55e" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="Performance" stroke="#a855f7" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="Quality" stroke="#f97316" strokeWidth={2} dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Eventos Tab ────────────────────────────────────────────
+function EventsTab() {
+  return (
+    <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
+      <AlertTriangle size={48} className="mx-auto mb-4 text-gray-600" />
+      <p className="text-lg">Sin eventos registrados</p>
+      <p className="text-sm mt-1">Los eventos aparecerán aquí cuando se detecten paros</p>
+    </div>
+  );
+}
+
+// ── Pareto Tab ─────────────────────────────────────────────
+const PARETO_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#6366f1'];
+
+function ParetoTab({ workcellId }) {
+  const [pareto, setPareto] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!workcellId) return;
+    setLoading(true);
+    client.get(`/oee/${workcellId}/pareto`)
+      .then(r => setPareto(r.data.map(p => ({
+        causa: p.causa,
+        minutos: Math.round(p.total_segundos / 60),
+        porcentaje: Number(p.porcentaje),
+      }))))
+      .catch(() => setPareto([]))
+      .finally(() => setLoading(false));
+  }, [workcellId]);
+
+  if (loading) return <p className="text-gray-400">Cargando...</p>;
+  if (pareto.length === 0) return <p className="text-gray-400">Sin datos de pareto para hoy</p>;
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: Math.max(300, pareto.length * 50 + 80) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={pareto} layout="vertical" margin={{ left: 120 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <XAxis type="number" tick={{ fill: '#9ca3af' }} unit=" min" />
+          <YAxis dataKey="causa" type="category" tick={{ fill: '#9ca3af', fontSize: 12 }} width={110} />
+          <Tooltip
+            contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
+            formatter={(v, name) => [`${v} min`, name]}
+          />
+          <Bar dataKey="minutos" name="Duración" radius={[0, 4, 4, 0]}>
+            {pareto.map((_, i) => (
+              <Cell key={i} fill={PARETO_COLORS[i % PARETO_COLORS.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Main Dashboard ─────────────────────────────────────────
+const MAIN_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'trend', label: 'Tendencia' },
+  { key: 'events', label: 'Eventos' },
+  { key: 'pareto', label: 'Pareto' },
+];
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const { data: wsData, connected: wsConnected } = useWebSocket();
+  const [selectedWcId, setSelectedWcId] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // Workcells list from WS
+  const workcells = useMemo(() => {
+    if (!Array.isArray(wsData)) return [];
+    return wsData;
+  }, [wsData]);
+
+  // Auto-select first workcell
+  useEffect(() => {
+    if (workcells.length > 0 && selectedWcId === null) {
+      setSelectedWcId(workcells[0].workcell_id);
+    }
+  }, [workcells, selectedWcId]);
+
+  const selectedWc = useMemo(
+    () => workcells.find(w => w.workcell_id === selectedWcId) || null,
+    [workcells, selectedWcId]
+  );
+
+  // User from JWT
+  const user = useMemo(() => {
+    const token = localStorage.getItem('oee_token');
+    if (!token) return null;
+    try {
+      return JSON.parse(atob(token.split('.')[1]));
+    } catch {
+      return null;
+    }
+  }, []);
+
+  function handleLogout() {
+    localStorage.removeItem('oee_token');
+    navigate('/login');
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      {/* Header */}
+      <header className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <Factory size={24} className="text-blue-500" />
+          <span className="text-xl font-bold">OEE Box</span>
+          <span className="text-gray-500 hidden sm:inline">|</span>
+          <span className="text-gray-400 text-sm hidden sm:inline">Planta Industrial</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {wsConnected
+              ? <Wifi size={16} className="text-green-400" />
+              : <WifiOff size={16} className="text-red-400" />}
+            <span className="text-sm text-gray-400 hidden sm:inline">
+              {wsConnected ? 'Conectado' : 'Desconectado'}
+            </span>
+          </div>
+          {user && <span className="text-sm text-gray-400">{user.username}</span>}
+          <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors" title="Cerrar sesión">
+            <LogOut size={18} />
+          </button>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-48 bg-gray-800 border-r border-gray-700 p-3 shrink-0 overflow-y-auto hidden md:block">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase mb-3 px-2">Workcells</h2>
+          {workcells.length === 0 && (
+            <p className="text-gray-500 text-sm px-2">Esperando datos...</p>
+          )}
+          {workcells.map(wc => (
+            <button
+              key={wc.workcell_id}
+              onClick={() => setSelectedWcId(wc.workcell_id)}
+              className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors flex items-center gap-2 ${
+                selectedWcId === wc.workcell_id
+                  ? 'bg-blue-600/20 text-blue-400 border border-blue-600/30'
+                  : 'text-gray-400 hover:bg-gray-700 border border-transparent'
+              }`}
+            >
+              <Zap size={14} className={wc.machine_running ? 'text-green-400' : 'text-gray-600'} />
+              <div>
+                <div className="font-medium">{wc.workcell_code}</div>
+                <div className="text-xs text-gray-500">{wc.workcell_name}</div>
+              </div>
+            </button>
+          ))}
+        </aside>
+
+        {/* Main */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {/* Mobile workcell select */}
+          <div className="md:hidden mb-4">
+            <select
+              value={selectedWcId || ''}
+              onChange={e => setSelectedWcId(Number(e.target.value))}
+              className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg p-2"
+            >
+              {workcells.map(wc => (
+                <option key={wc.workcell_id} value={wc.workcell_id}>
+                  {wc.workcell_code} - {wc.workcell_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedWc ? (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h1 className="text-2xl font-bold">{selectedWc.workcell_code} - {selectedWc.workcell_name}</h1>
+                  <p className="text-gray-500 text-sm">
+                    Actualizado: {selectedWc.last_update ? new Date(selectedWc.last_update).toLocaleTimeString('es-MX') : '—'}
+                  </p>
+                </div>
+                <Tabs tabs={MAIN_TABS} active={activeTab} onChange={setActiveTab} />
+              </div>
+
+              {activeTab === 'overview' && <OverviewTab wc={selectedWc} />}
+              {activeTab === 'trend' && <TrendTab workcellId={selectedWcId} />}
+              {activeTab === 'events' && <EventsTab />}
+              {activeTab === 'pareto' && <ParetoTab workcellId={selectedWcId} />}
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-gray-500">
+              <p>Esperando conexión con las workcells...</p>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}

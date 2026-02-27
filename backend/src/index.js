@@ -44,9 +44,13 @@ startEngine();
 
 const PORT = process.env.PORT || 3000;
 
+// WebSocket
+const { startWebSocket } = require('./websocket/server');
+
 server.listen(PORT, () => {
   console.log(`OEE Box Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  startWebSocket(server);
 });
 
 module.exports = { app, server };
