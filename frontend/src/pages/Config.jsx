@@ -113,7 +113,19 @@ function WorkcellSelect({ workcells, value, onChange }) {
 // WORKCELLS SECTION
 // ═══════════════════════════════════════════════════════════
 
-const PLC_PROTOCOLS = ['modbus-tcp', 'ethernet-ip', 'opcua', 'manual'];
+const PLC_PROTOCOLS = [
+  { value: 'modbus-tcp', label: 'Modbus TCP' },
+  { value: 'ethernet-ip', label: 'EtherNet/IP (Allen-Bradley)' },
+  { value: 'opcua', label: 'OPC-UA (Siemens S7)' },
+  { value: 'manual', label: 'Manual' },
+];
+
+const TAG_PLACEHOLDERS = {
+  'modbus-tcp': 'HR100',
+  'ethernet-ip': 'Program:Main.TotalParts',
+  'opcua': 'ns=3;s="TotalParts"',
+  'manual': '',
+};
 
 function WorkcellModal({ workcell, onClose, onSaved, onToast }) {
   const isEdit = !!workcell;
@@ -171,7 +183,7 @@ function WorkcellModal({ workcell, onClose, onSaved, onToast }) {
             <div>
               <label className="block text-gray-400 text-sm mb-1">Protocolo</label>
               <select value={form.plc_protocol} onChange={e => set('plc_protocol', e.target.value)} className={inputCls}>
-                {PLC_PROTOCOLS.map(p => <option key={p} value={p}>{p}</option>)}
+                {PLC_PROTOCOLS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
             </div>
             <div>
@@ -197,7 +209,7 @@ function WorkcellModal({ workcell, onClose, onSaved, onToast }) {
             {['tag_total_parts', 'tag_good_parts', 'tag_scrap_parts', 'tag_machine_run', 'tag_fault_active', 'tag_fault_code', 'tag_shift_active'].map(tag => (
               <div key={tag}>
                 <label className="block text-gray-400 text-xs mb-1">{tag.replace(/^tag_/, '').replace(/_/g, ' ')}</label>
-                <input value={form[tag] || ''} onChange={e => set(tag, e.target.value)} className={inputCls} placeholder={tag} />
+                <input value={form[tag] || ''} onChange={e => set(tag, e.target.value)} className={inputCls} placeholder={TAG_PLACEHOLDERS[form.plc_protocol] || tag} />
               </div>
             ))}
           </div>

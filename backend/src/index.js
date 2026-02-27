@@ -55,12 +55,14 @@ if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SIMULATOR === 't
   startSimulator();
 }
 
-// PLC connectors (producción o ENABLE_MODBUS=true activa ambos)
+// PLC connectors (producción o ENABLE_MODBUS=true activa todos)
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MODBUS === 'true') {
   const { startModbusConnectors } = require('./connectors/modbus');
   const { startEthernetIPConnectors } = require('./connectors/ethernet-ip');
+  const { startOpcuaConnectors } = require('./connectors/opcua');
   startModbusConnectors();
   startEthernetIPConnectors();
+  startOpcuaConnectors();
 }
 
 // OEE Engine
