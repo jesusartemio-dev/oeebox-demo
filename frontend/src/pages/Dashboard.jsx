@@ -163,41 +163,100 @@ function OverviewTab({ wc }) {
 // ── Tendencia Tab ──────────────────────────────────────────
 function TrendTab({ workcellId }) {
   const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!workcellId) return;
+
+    function fetchHistory() {
+      client.get(`/oee/${workcellId}/history`)
+        .then(r => setHistory(r.data || []))
+        .catch(() => setHistory([]))
+        .finally(() => setLoading(false));
+    }
+
     setLoading(true);
-    client.get(`/oee/${workcellId}/history`)
-      .then(r => setHistory(r.data.map(h => ({
-        hora: new Date(h.hora).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        OEE: Math.round((h.oee || 0) * 100),
-        Availability: Math.round((h.availability || 0) * 100),
-        Performance: Math.round((h.performance || 0) * 100),
-        Quality: Math.round((h.quality || 0) * 100),
-      }))))
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false));
+    fetchHistory();
+    const id = setInterval(fetchHistory, 60000);
+    return () => clearInterval(id);
   }, [workcellId]);
 
-  if (loading) return <p className="text-gray-400">Cargando...</p>;
-  if (history.length === 0) return <p className="text-gray-400">Sin datos de tendencia</p>;
+  const averages = useMemo(() => {
+    if (history.length === 0) return null;
+    const sum = (key) => history.reduce((s, h) => s + Number(h[key] || 0), 0) / history.length;
+    return { oee: sum('oee'), availability: sum('availability'), performance: sum('performance'), quality: sum('quality') };
+  }, [history]);
+
+  const pctTooltip = (v) => `${(v * 100).toFixed(1)}%`;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400 gap-3">
+        <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+        <span>Cargando datos históricos...</span>
+      </div>
+    );
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
+        <Clock size={48} className="mx-auto mb-4 text-gray-600" />
+        <p className="text-lg">Sin datos históricos disponibles</p>
+        <p className="text-sm mt-1">Los datos aparecerán cuando el motor OEE genere registros</p>
+      </div>
+    );
+  }
+
+  const METRICS = [
+    { key: 'oee', label: 'OEE', color: '#3b82f6', bg: 'bg-blue-500/10', text: 'text-blue-400' },
+    { key: 'availability', label: 'Disponibilidad', color: '#22c55e', bg: 'bg-green-500/10', text: 'text-green-400' },
+    { key: 'performance', label: 'Performance', color: '#a855f7', bg: 'bg-purple-500/10', text: 'text-purple-400' },
+    { key: 'quality', label: 'Calidad', color: '#f97316', bg: 'bg-orange-500/10', text: 'text-orange-400' },
+  ];
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: 400 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={history}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis dataKey="hora" tick={{ fill: '#9ca3af', fontSize: 12 }} angle={-30} textAnchor="end" height={60} />
-          <YAxis tick={{ fill: '#9ca3af' }} domain={[0, 100]} unit="%" />
-          <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8 }} />
-          <Legend />
-          <Line type="monotone" dataKey="OEE" stroke="#3b82f6" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="Availability" stroke="#22c55e" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="Performance" stroke="#a855f7" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="Quality" stroke="#f97316" strokeWidth={2} dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {METRICS.map(m => (
+          <div key={m.key} className={`${m.bg} rounded-lg p-4 border border-gray-700`}>
+            <p className="text-gray-400 text-sm">{m.label} promedio</p>
+            <p className={`text-2xl font-bold ${m.text}`}>
+              {averages ? `${Math.round(averages[m.key] * 100)}%` : '—'}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: 350 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={history}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis
+              dataKey="hora"
+              tick={{ fill: '#9ca3af', fontSize: 12 }}
+              tickFormatter={(v) => new Date(v).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+              angle={-30} textAnchor="end" height={50}
+            />
+            <YAxis
+              tick={{ fill: '#9ca3af' }}
+              domain={[0, 1]}
+              tickFormatter={(v) => `${Math.round(v * 100)}%`}
+            />
+            <Tooltip
+              contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f3f4f6' }}
+              labelFormatter={(v) => new Date(v).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              formatter={(v, name) => [pctTooltip(v), name]}
+            />
+            <Legend />
+            {METRICS.map(m => (
+              <Line key={m.key} type="monotone" dataKey={m.key} name={m.label} stroke={m.color} strokeWidth={2} dot={false} />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
