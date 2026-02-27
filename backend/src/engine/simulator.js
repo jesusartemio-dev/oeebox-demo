@@ -14,6 +14,7 @@ const state = {
     currentPartId: null,
     partIds: [],
     starvedUntil: 0,
+    currentEventId: null,
   },
   L02: {
     workcellCode: 'L02',
@@ -27,6 +28,7 @@ const state = {
     currentPartId: null,
     partIds: [],
     starvedUntil: 0,
+    currentEventId: null,
   },
 };
 
@@ -75,9 +77,44 @@ async function initWorkcell(wc) {
   return true;
 }
 
+// Abre un evento de paro en la DB
+async function openEvent(wc, eventType) {
+  try {
+    console.log('EVENT OPEN:', wc.workcellId, eventType, 'faultCode:', wc.faultCode);
+    const { rows } = await query(`
+      INSERT INTO events (workcell_id, started_at, event_type, fault_code, fault_code_raw, source)
+      VALUES ($1, NOW(), $2, $3, $4, 'plc')
+      RETURNING id
+    `, [wc.workcellId, eventType, wc.faultCode ? `Fault Code ${wc.faultCode}` : null, wc.faultCode || null]);
+    wc.currentEventId = rows[0].id;
+    console.log('EVENT OPEN OK: id =', wc.currentEventId);
+  } catch (err) {
+    console.error('Event INSERT error:', err.message);
+  }
+}
+
+// Cierra el evento de paro abierto
+async function closeEvent(wc) {
+  if (wc.currentEventId === null) return;
+  try {
+    console.log('EVENT CLOSE:', wc.workcellId, 'eventId:', wc.currentEventId);
+    await query(`
+      UPDATE events SET
+        ended_at = NOW(),
+        duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))
+      WHERE id = $1
+    `, [wc.currentEventId]);
+    console.log('EVENT CLOSE OK: id =', wc.currentEventId);
+    wc.currentEventId = null;
+  } catch (err) {
+    console.error('Event UPDATE error:', err.message);
+  }
+}
+
 // Simula un tick (1 segundo) para una workcell
 async function tick(wc) {
   const now = Date.now();
+  const wasRunning = wc.machineRunning;
 
   // Starved: máquina parada temporalmente
   if (wc.starvedUntil > now) {
@@ -114,6 +151,14 @@ async function tick(wc) {
   if (wc.machineRunning && Math.random() < 0.005) {
     wc.starvedUntil = now + 30000;
     wc.machineRunning = false;
+  }
+
+  // Registrar eventos de paro
+  if (wasRunning && !wc.machineRunning) {
+    const eventType = wc.faultActive ? 'fault' : 'starved';
+    await openEvent(wc, eventType);
+  } else if (!wasRunning && wc.machineRunning) {
+    await closeEvent(wc);
   }
 
   // Calcular partes

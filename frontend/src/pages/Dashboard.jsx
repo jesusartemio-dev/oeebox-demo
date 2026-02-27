@@ -273,46 +273,134 @@ function EventsTab() {
 }
 
 // ── Pareto Tab ─────────────────────────────────────────────
-const PARETO_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#6366f1'];
+const EVENT_TYPE_STYLES = {
+  fault: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Falla' },
+  starved: { bg: 'bg-purple-500/10', text: 'text-purple-400', label: 'Starved' },
+  blocked: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Bloqueado' },
+  changeover: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', label: 'Cambio' },
+  planned: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Planeado' },
+};
 
 function ParetoTab({ workcellId }) {
   const [pareto, setPareto] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!workcellId) return;
+
+    function fetchPareto() {
+      client.get(`/oee/${workcellId}/pareto`)
+        .then(r => setPareto((r.data || []).map(p => ({
+          ...p,
+          total_segundos: Number(p.total_segundos),
+          total_segundos_min: Math.round(Number(p.total_segundos) / 60 * 10) / 10,
+          cantidad: Number(p.cantidad),
+          porcentaje: Number(p.porcentaje),
+        }))))
+        .catch(() => setPareto([]))
+        .finally(() => setLoading(false));
+    }
+
     setLoading(true);
-    client.get(`/oee/${workcellId}/pareto`)
-      .then(r => setPareto(r.data.map(p => ({
-        causa: p.causa,
-        minutos: Math.round(p.total_segundos / 60),
-        porcentaje: Number(p.porcentaje),
-      }))))
-      .catch(() => setPareto([]))
-      .finally(() => setLoading(false));
+    fetchPareto();
+    const id = setInterval(fetchPareto, 60000);
+    return () => clearInterval(id);
   }, [workcellId]);
 
-  if (loading) return <p className="text-gray-400">Cargando...</p>;
-  if (pareto.length === 0) return <p className="text-gray-400">Sin datos de pareto para hoy</p>;
+  const totals = useMemo(() => {
+    if (pareto.length === 0) return null;
+    return {
+      minutos: Math.round(pareto.reduce((s, p) => s + p.total_segundos, 0) / 60),
+      eventos: pareto.reduce((s, p) => s + p.cantidad, 0),
+      topCausa: pareto[0]?.causa || '—',
+    };
+  }, [pareto]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400 gap-3">
+        <div className="w-6 h-6 border-2 border-gray-600 border-t-yellow-500 rounded-full animate-spin" />
+        <span>Cargando datos de pareto...</span>
+      </div>
+    );
+  }
+
+  if (pareto.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
+        <CheckCircle size={48} className="mx-auto mb-4 text-green-600" />
+        <p className="text-lg">Sin paros registrados hoy</p>
+        <p className="text-sm mt-1">No se han detectado paros en esta workcell</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: Math.max(300, pareto.length * 50 + 80) }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={pareto} layout="vertical" margin={{ left: 120 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis type="number" tick={{ fill: '#9ca3af' }} unit=" min" />
-          <YAxis dataKey="causa" type="category" tick={{ fill: '#9ca3af', fontSize: 12 }} width={110} />
-          <Tooltip
-            contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-            formatter={(v, name) => [`${v} min`, name]}
-          />
-          <Bar dataKey="minutos" name="Duración" radius={[0, 4, 4, 0]}>
-            {pareto.map((_, i) => (
-              <Cell key={i} fill={PARETO_COLORS[i % PARETO_COLORS.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Tiempo total paro</p>
+          <p className="text-2xl font-bold text-yellow-400">{totals.minutos} min</p>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Total eventos</p>
+          <p className="text-2xl font-bold text-white">{totals.eventos}</p>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Causa principal</p>
+          <p className="text-lg font-bold text-red-400 truncate">{totals.topCausa}</p>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className="bg-gray-800 rounded-lg p-4 border border-gray-700" style={{ height: Math.max(300, pareto.length * 45 + 60) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={pareto} layout="vertical" margin={{ left: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis
+              type="number"
+              tick={{ fill: '#9ca3af' }}
+              tickFormatter={(v) => `${Math.round(v)} min`}
+            />
+            <YAxis dataKey="causa" type="category" tick={{ fill: '#9ca3af', fontSize: 12 }} width={120} />
+            <Tooltip
+              contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8, color: '#f3f4f6' }}
+              formatter={(v, name, props) => [`${v} min (${props.payload.porcentaje}%)`, 'Duración']}
+            />
+            <Bar dataKey="total_segundos_min" name="Duración" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Detail table */}
+      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-700 text-gray-400">
+              <th className="text-left p-3">Causa</th>
+              <th className="text-left p-3">Tipo</th>
+              <th className="text-right p-3">Eventos</th>
+              <th className="text-right p-3">Tiempo (min)</th>
+              <th className="text-right p-3">% del total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pareto.map((p, i) => {
+              const style = EVENT_TYPE_STYLES[p.event_type] || { bg: 'bg-gray-500/10', text: 'text-gray-400', label: p.event_type };
+              return (
+                <tr key={i} className={`${style.bg} border-b border-gray-700/50`}>
+                  <td className="p-3 text-white">{p.causa}</td>
+                  <td className={`p-3 ${style.text}`}>{style.label}</td>
+                  <td className="p-3 text-right text-white">{p.cantidad}</td>
+                  <td className="p-3 text-right text-white">{p.total_segundos_min}</td>
+                  <td className="p-3 text-right text-yellow-400">{p.porcentaje}%</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
