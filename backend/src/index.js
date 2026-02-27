@@ -40,6 +40,12 @@ if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SIMULATOR === 't
   startSimulator();
 }
 
+// Modbus connectors (producción o ENABLE_MODBUS=true)
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MODBUS === 'true') {
+  const { startModbusConnectors } = require('./connectors/modbus');
+  startModbusConnectors();
+}
+
 // OEE Engine
 const { startEngine } = require('./engine/oee-calculator');
 startEngine();
