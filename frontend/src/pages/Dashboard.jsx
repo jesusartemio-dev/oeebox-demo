@@ -7,6 +7,7 @@ import {
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
   XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare, Plus, Settings, FileText,
+  ShieldCheck, ShieldOff,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -83,7 +84,7 @@ function Tabs({ tabs, active, onChange }) {
 }
 
 // ── Overview Tab ───────────────────────────────────────────
-function OverviewTab({ wc, onOpenManualModal }) {
+function OverviewTab({ wc, onOpenManualModal, licenseValid }) {
   const [todayData, setTodayData] = useState({ runMins: 0, availMins: 0 });
 
   useEffect(() => {
@@ -160,8 +161,13 @@ function OverviewTab({ wc, onOpenManualModal }) {
       {/* Floating button */}
       <button
         onClick={onOpenManualModal}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg shadow-red-600/30 flex items-center justify-center transition-colors z-40"
-        title="Registrar Paro Manual"
+        disabled={!licenseValid}
+        className={`fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-colors z-40 ${
+          licenseValid
+            ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/30'
+            : 'bg-red-600/50 text-white/50 cursor-not-allowed'
+        }`}
+        title={licenseValid ? 'Registrar Paro Manual' : 'Requiere licencia válida'}
       >
         <Plus size={28} />
       </button>
@@ -542,7 +548,7 @@ const EVENT_FILTERS = [
   { key: 'other', label: 'Otros' },
 ];
 
-function EventsTab({ workcellId, onOpenManualModal, onToast }) {
+function EventsTab({ workcellId, onOpenManualModal, onToast, licenseValid }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -601,7 +607,11 @@ function EventsTab({ workcellId, onOpenManualModal, onToast }) {
         <div className="flex justify-end">
           <button
             onClick={onOpenManualModal}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+            disabled={!licenseValid}
+            className={`px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+              licenseValid ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600/50 opacity-50 cursor-not-allowed'
+            }`}
+            title={licenseValid ? undefined : 'Requiere licencia válida'}
           >
             <Plus size={16} />
             Registrar Paro
@@ -638,7 +648,11 @@ function EventsTab({ workcellId, onOpenManualModal, onToast }) {
         </div>
         <button
           onClick={onOpenManualModal}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shrink-0"
+          disabled={!licenseValid}
+          className={`px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shrink-0 ${
+            licenseValid ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600/50 opacity-50 cursor-not-allowed'
+          }`}
+          title={licenseValid ? undefined : 'Requiere licencia válida'}
         >
           <Plus size={16} />
           Registrar Paro
@@ -706,14 +720,26 @@ function EventsTab({ workcellId, onOpenManualModal, onToast }) {
                     {ev.source === 'manual' && !ev.ended_at ? (
                       <button
                         onClick={() => handleCloseEvent(ev.id)}
-                        className="px-2 py-1 text-xs bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded transition-colors"
+                        disabled={!licenseValid}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                          licenseValid
+                            ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40'
+                            : 'bg-red-600/10 text-red-400/50 cursor-not-allowed'
+                        }`}
+                        title={licenseValid ? undefined : 'Requiere licencia válida'}
                       >
                         Cerrar Paro
                       </button>
                     ) : !ev.reason_code ? (
                       <button
                         onClick={() => setClassifyId(ev.id)}
-                        className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded transition-colors"
+                        disabled={!licenseValid}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                          licenseValid
+                            ? 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/40'
+                            : 'bg-blue-600/10 text-blue-400/50 cursor-not-allowed'
+                        }`}
+                        title={licenseValid ? undefined : 'Requiere licencia válida'}
                       >
                         Clasificar
                       </button>
@@ -958,10 +984,20 @@ export default function Dashboard() {
   const [toast, setToast] = useState({ message: '', type: 'success', visible: false });
   const [showManualModal, setShowManualModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [license, setLicense] = useState(null);
+
+  // Fetch license status
+  useEffect(() => {
+    client.get('/license/status')
+      .then(r => setLicense(r.data))
+      .catch(() => setLicense({ valid: false, reason: 'No se pudo verificar licencia' }));
+  }, []);
 
   function showToast(message, type = 'success') {
     setToast({ message, type, visible: true });
   }
+
+  const licenseValid = license?.valid === true;
 
   // Workcells list from WS
   const workcells = useMemo(() => {
@@ -1026,6 +1062,20 @@ export default function Dashboard() {
               <span className="hidden sm:inline">Reporte</span>
             </button>
           )}
+          {license && (
+            licenseValid ? (
+              <span
+                className="flex items-center gap-1 px-2 py-0.5 bg-green-500/15 text-green-400 text-xs font-medium rounded-full cursor-default"
+                title={`${license.companyName} — ${license.customerName} — vence ${new Date(license.expiresAt).toLocaleDateString('es-MX')}`}
+              >
+                <ShieldCheck size={12} /> Licenciado
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-red-500/15 text-red-400 text-xs font-medium rounded-full cursor-default" title={license.reason || 'Sin licencia'}>
+                <ShieldOff size={12} /> Sin licencia
+              </span>
+            )
+          )}
           {user && <span className="text-sm text-gray-400">{user.username}</span>}
           {user?.role === 'admin' && (
             <button onClick={() => navigate('/config')} className="text-gray-400 hover:text-white transition-colors" title="Configuración">
@@ -1037,6 +1087,15 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      {/* License warning banner */}
+      {license && !license.valid && (
+        <div className="bg-yellow-600/20 border-b border-yellow-600/40 px-6 py-2 flex items-center gap-2 text-yellow-300 text-sm shrink-0">
+          <AlertTriangle size={16} />
+          <span className="font-medium">Modo lectura</span>
+          <span className="text-yellow-400/80">— Sistema sin licencia válida. Contacte a GYS Automation para activar.</span>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
@@ -1093,9 +1152,9 @@ export default function Dashboard() {
                 <Tabs tabs={MAIN_TABS} active={activeTab} onChange={setActiveTab} />
               </div>
 
-              {activeTab === 'overview' && <OverviewTab wc={selectedWc} onOpenManualModal={() => setShowManualModal(true)} />}
+              {activeTab === 'overview' && <OverviewTab wc={selectedWc} onOpenManualModal={() => setShowManualModal(true)} licenseValid={licenseValid} />}
               {activeTab === 'trend' && <TrendTab workcellId={selectedWcId} />}
-              {activeTab === 'events' && <EventsTab workcellId={selectedWcId} onOpenManualModal={() => setShowManualModal(true)} onToast={showToast} />}
+              {activeTab === 'events' && <EventsTab workcellId={selectedWcId} onOpenManualModal={() => setShowManualModal(true)} onToast={showToast} licenseValid={licenseValid} />}
               {activeTab === 'pareto' && <ParetoTab workcellId={selectedWcId} />}
             </>
           ) : (
