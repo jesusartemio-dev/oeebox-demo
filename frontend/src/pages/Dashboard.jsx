@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Factory, Wifi, WifiOff, LogOut, Activity, AlertTriangle, CheckCircle,
-  XCircle, Clock, Hash, Trash2, Zap,
+  XCircle, Clock, Hash, Trash2, Zap, X, Filter, MessageSquare,
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
@@ -261,25 +261,291 @@ function TrendTab({ workcellId }) {
   );
 }
 
-// ── Eventos Tab ────────────────────────────────────────────
-function EventsTab() {
+// ── Shared event type styles ───────────────────────────────
+const EVENT_TYPE_STYLES = {
+  fault: { bg: 'bg-red-500/10', text: 'text-red-400', badge: 'bg-red-500/20 text-red-400', label: 'Falla' },
+  starved: { bg: 'bg-purple-500/10', text: 'text-purple-400', badge: 'bg-purple-500/20 text-purple-400', label: 'Sin Material' },
+  blocked: { bg: 'bg-blue-500/10', text: 'text-blue-400', badge: 'bg-blue-500/20 text-blue-400', label: 'Bloqueado' },
+  changeover: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', badge: 'bg-yellow-500/20 text-yellow-400', label: 'Cambio' },
+  planned: { bg: 'bg-green-500/10', text: 'text-green-400', badge: 'bg-green-500/20 text-green-400', label: 'Planeado' },
+};
+
+const SOURCE_BADGE = {
+  plc: 'bg-blue-500/20 text-blue-400',
+  manual: 'bg-green-500/20 text-green-400',
+  both: 'bg-yellow-500/20 text-yellow-400',
+};
+
+function formatDuration(seconds) {
+  if (seconds == null) return null;
+  const s = Math.round(Number(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
+}
+
+// ── Classify Modal ─────────────────────────────────────────
+function ClassifyModal({ eventId, onClose, onSaved }) {
+  const [reasonCodes, setReasonCodes] = useState([]);
+  const [selectedCode, setSelectedCode] = useState('');
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    client.get('/events/reason-codes')
+      .then(r => setReasonCodes(r.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Group by category
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const rc of reasonCodes) {
+      if (!map[rc.category]) map[rc.category] = [];
+      map[rc.category].push(rc);
+    }
+    return map;
+  }, [reasonCodes]);
+
+  async function handleSave() {
+    if (!selectedCode) return;
+    setSaving(true);
+    const rc = reasonCodes.find(r => r.code === selectedCode);
+    try {
+      await client.put(`/events/${eventId}/classify`, {
+        reason_code: selectedCode,
+        reason_label: rc?.label || selectedCode,
+        comment: comment || null,
+      });
+      onSaved();
+    } catch {
+      // error silently
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
-      <AlertTriangle size={48} className="mx-auto mb-4 text-gray-600" />
-      <p className="text-lg">Sin eventos registrados</p>
-      <p className="text-sm mt-1">Los eventos aparecerán aquí cuando se detecten paros</p>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-800 rounded-lg border border-gray-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">Clasificar Evento</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Razón de paro</label>
+            <select
+              value={selectedCode}
+              onChange={e => setSelectedCode(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Seleccionar razón...</option>
+              {Object.entries(grouped).map(([cat, codes]) => (
+                <optgroup key={cat} label={cat}>
+                  {codes.map(rc => (
+                    <option key={rc.code} value={rc.code}>{rc.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-400 text-sm mb-1">Comentario (opcional)</label>
+            <textarea
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              rows={3}
+              className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none resize-none"
+              placeholder="Agregar comentario..."
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-700">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!selectedCode || saving}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded transition-colors"
+          >
+            {saving ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Eventos Tab ────────────────────────────────────────────
+const EVENT_FILTERS = [
+  { key: 'all', label: 'Todos' },
+  { key: 'fault', label: 'Fallas' },
+  { key: 'starved', label: 'Sin Material' },
+  { key: 'other', label: 'Otros' },
+];
+
+function EventsTab({ workcellId }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');
+  const [classifyId, setClassifyId] = useState(null);
+
+  function fetchEvents() {
+    if (!workcellId) return;
+    client.get(`/events/${workcellId}`)
+      .then(r => setEvents(r.data || []))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    if (!workcellId) return;
+    setLoading(true);
+    fetchEvents();
+    const id = setInterval(fetchEvents, 30000);
+    return () => clearInterval(id);
+  }, [workcellId]);
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return events;
+    if (filter === 'other') return events.filter(e => e.event_type !== 'fault' && e.event_type !== 'starved');
+    return events.filter(e => e.event_type === filter);
+  }, [events, filter]);
+
+  const summary = useMemo(() => ({
+    total: events.length,
+    unclassified: events.filter(e => !e.reason_code).length,
+    downMins: Math.round(events.reduce((s, e) => s + Number(e.duration_seconds || 0), 0) / 60),
+  }), [events]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400 gap-3">
+        <div className="w-6 h-6 border-2 border-gray-600 border-t-red-500 rounded-full animate-spin" />
+        <span>Cargando eventos...</span>
+      </div>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-8 border border-gray-700 text-center text-gray-400">
+        <CheckCircle size={48} className="mx-auto mb-4 text-green-600" />
+        <p className="text-lg">Sin eventos registrados hoy</p>
+        <p className="text-sm mt-1">No se han detectado paros en esta workcell</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Total eventos</p>
+          <p className="text-2xl font-bold text-white">{summary.total}</p>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Sin clasificar</p>
+          <p className={`text-2xl font-bold ${summary.unclassified > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+            {summary.unclassified}
+          </p>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <p className="text-gray-400 text-sm">Tiempo paro total</p>
+          <p className="text-2xl font-bold text-red-400">{summary.downMins} min</p>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <div className="flex items-center gap-2">
+        <Filter size={16} className="text-gray-500" />
+        {EVENT_FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              filter === f.key ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white border border-gray-700'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-700 text-gray-400">
+              <th className="text-left p-3">Hora</th>
+              <th className="text-left p-3">Duración</th>
+              <th className="text-left p-3">Tipo</th>
+              <th className="text-left p-3">Código PLC</th>
+              <th className="text-left p-3">Causa</th>
+              <th className="text-left p-3">Fuente</th>
+              <th className="text-left p-3">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(ev => {
+              const style = EVENT_TYPE_STYLES[ev.event_type] || { bg: 'bg-gray-500/10', badge: 'bg-gray-500/20 text-gray-400', label: ev.event_type };
+              const srcStyle = SOURCE_BADGE[ev.source] || SOURCE_BADGE.plc;
+              const srcLabel = ev.source === 'plc' ? 'PLC' : ev.source === 'manual' ? 'Manual' : 'Ambos';
+              return (
+                <tr key={ev.id} className={`${style.bg} border-b border-gray-700/50`}>
+                  <td className="p-3 text-white font-mono">
+                    {new Date(ev.started_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </td>
+                  <td className="p-3">
+                    {ev.ended_at
+                      ? <span className="text-white">{formatDuration(ev.duration_seconds)}</span>
+                      : <span className="text-red-400 text-xs font-medium animate-pulse">EN CURSO</span>}
+                  </td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.badge}`}>{style.label}</span>
+                  </td>
+                  <td className="p-3 text-gray-300 font-mono text-xs">{ev.fault_code || '—'}</td>
+                  <td className="p-3">
+                    {ev.reason_label
+                      ? <span className="text-white flex items-center gap-1"><MessageSquare size={12} className="text-green-400" />{ev.reason_label}</span>
+                      : <span className="text-gray-500 italic">Sin clasificar</span>}
+                  </td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${srcStyle}`}>{srcLabel}</span>
+                  </td>
+                  <td className="p-3">
+                    {!ev.reason_code && (
+                      <button
+                        onClick={() => setClassifyId(ev.id)}
+                        className="px-2 py-1 text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded transition-colors"
+                      >
+                        Clasificar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Classify modal */}
+      {classifyId && (
+        <ClassifyModal
+          eventId={classifyId}
+          onClose={() => setClassifyId(null)}
+          onSaved={() => { setClassifyId(null); fetchEvents(); }}
+        />
+      )}
     </div>
   );
 }
 
 // ── Pareto Tab ─────────────────────────────────────────────
-const EVENT_TYPE_STYLES = {
-  fault: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Falla' },
-  starved: { bg: 'bg-purple-500/10', text: 'text-purple-400', label: 'Starved' },
-  blocked: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Bloqueado' },
-  changeover: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', label: 'Cambio' },
-  planned: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Planeado' },
-};
 
 function ParetoTab({ workcellId }) {
   const [pareto, setPareto] = useState([]);
@@ -536,7 +802,7 @@ export default function Dashboard() {
 
               {activeTab === 'overview' && <OverviewTab wc={selectedWc} />}
               {activeTab === 'trend' && <TrendTab workcellId={selectedWcId} />}
-              {activeTab === 'events' && <EventsTab />}
+              {activeTab === 'events' && <EventsTab workcellId={selectedWcId} />}
               {activeTab === 'pareto' && <ParetoTab workcellId={selectedWcId} />}
             </>
           ) : (
