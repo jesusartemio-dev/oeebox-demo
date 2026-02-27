@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "license:generate": "node src/license/generate-license.js",
+    "license:machine-id": "node src/license/get-machine-id.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +21,7 @@
     "express": "^5.2.1",
     "jsmodbus": "^4.0.10",
     "jsonwebtoken": "^9.0.3",
+    "node-machine-id": "^1.1.12",
     "pdfkit": "^0.17.2",
     "pg": "^8.19.0",
     "ws": "^8.19.0"

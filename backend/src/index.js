@@ -4,6 +4,7 @@ const cors = require('cors');
 const http = require('http');
 const path = require('path');
 const pool = require('./db/connection');
+const { validateLicense } = require('./license/license-validator');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +25,19 @@ app.use('/api/reports', require('./routes/reports'));
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date(), version: '1.0.0' });
+});
+
+// License status (sin auth — el frontend lo necesita antes del login)
+app.get('/api/license/status', (req, res) => {
+  const info = global.licenseInfo || { valid: false, reason: 'Not initialized' };
+  res.json({
+    valid: info.valid,
+    companyName: info.companyName || null,
+    customerName: info.customerName || null,
+    expiresAt: info.expiresAt || null,
+    maxWorkcells: info.maxWorkcells || null,
+    reason: info.reason || null,
+  });
 });
 
 // Servir frontend en producción
@@ -57,6 +71,15 @@ const PORT = process.env.PORT || 3000;
 
 // WebSocket
 const { startWebSocket } = require('./websocket/server');
+
+// License validation
+global.licenseInfo = validateLicense();
+if (global.licenseInfo.valid) {
+  const expires = new Date(global.licenseInfo.expiresAt).toLocaleDateString('es-MX');
+  console.log(`License valid for: ${global.licenseInfo.companyName} - expires: ${expires}`);
+} else {
+  console.warn(`Running in READ-ONLY mode: ${global.licenseInfo.reason}`);
+}
 
 server.listen(PORT, () => {
   console.log(`OEE Box Backend running on port ${PORT}`);

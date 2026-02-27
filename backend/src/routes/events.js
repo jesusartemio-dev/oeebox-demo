@@ -83,6 +83,10 @@ router.get('/:workcellId', async (req, res) => {
 
 // PUT /api/events/:eventId/classify
 router.put('/:eventId/classify', auth, async (req, res) => {
+  if (!global.licenseInfo || !global.licenseInfo.valid) {
+    return res.status(403).json({ error: 'Sistema en modo lectura. Licencia requerida.' });
+  }
+
   try {
     const eventId = parseInt(req.params.eventId, 10);
     if (isNaN(eventId)) {
@@ -118,6 +122,10 @@ router.put('/:eventId/classify', auth, async (req, res) => {
 const ALLOWED_EVENT_TYPES = ['fault', 'starved', 'blocked', 'changeover', 'planned', 'unplanned'];
 
 router.post('/:workcellId/manual', auth, async (req, res) => {
+  if (!global.licenseInfo || !global.licenseInfo.valid) {
+    return res.status(403).json({ error: 'Sistema en modo lectura. Licencia requerida.' });
+  }
+
   try {
     const workcellId = parseInt(req.params.workcellId, 10);
     if (isNaN(workcellId)) {
@@ -151,6 +159,10 @@ router.post('/:workcellId/manual', auth, async (req, res) => {
 
 // PUT /api/events/:eventId/close
 router.put('/:eventId/close', auth, async (req, res) => {
+  if (!global.licenseInfo || !global.licenseInfo.valid) {
+    return res.status(403).json({ error: 'Sistema en modo lectura. Licencia requerida.' });
+  }
+
   try {
     const eventId = parseInt(req.params.eventId, 10);
     if (isNaN(eventId)) {
