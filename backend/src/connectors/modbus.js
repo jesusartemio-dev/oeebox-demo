@@ -197,24 +197,28 @@ class ModbusConnector {
 const connectors = new Map();
 
 async function startModbusConnectors() {
-  const { rows: workcells } = await query(
-    "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'modbus-tcp'"
-  );
+  try {
+    const { rows: workcells } = await query(
+      "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'modbus-tcp'"
+    );
 
-  if (workcells.length === 0) {
-    console.log('No Modbus workcells configured');
-    return;
+    if (workcells.length === 0) {
+      console.log('No Modbus workcells configured');
+      return;
+    }
+
+    const codes = [];
+    for (const wc of workcells) {
+      const connector = new ModbusConnector(wc);
+      connectors.set(wc.id, connector);
+      connector.connect();
+      codes.push(wc.code);
+    }
+
+    console.log(`Modbus connectors started for: ${codes.join(', ')}`);
+  } catch (err) {
+    console.warn('Modbus: tablas no listas, saltando conectores:', err.message);
   }
-
-  const codes = [];
-  for (const wc of workcells) {
-    const connector = new ModbusConnector(wc);
-    connectors.set(wc.id, connector);
-    connector.connect();
-    codes.push(wc.code);
-  }
-
-  console.log(`Modbus connectors started for: ${codes.join(', ')}`);
 }
 
 function stopModbusConnectors() {

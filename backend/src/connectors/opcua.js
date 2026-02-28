@@ -205,24 +205,28 @@ class OpcuaConnector {
 const connectors = new Map();
 
 async function startOpcuaConnectors() {
-  const { rows: workcells } = await query(
-    "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'opcua'"
-  );
+  try {
+    const { rows: workcells } = await query(
+      "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'opcua'"
+    );
 
-  if (workcells.length === 0) {
-    console.log('No OPC-UA workcells configured');
-    return;
+    if (workcells.length === 0) {
+      console.log('No OPC-UA workcells configured');
+      return;
+    }
+
+    const codes = [];
+    for (const wc of workcells) {
+      const connector = new OpcuaConnector(wc);
+      connectors.set(wc.id, connector);
+      connector.connect();
+      codes.push(wc.code);
+    }
+
+    console.log(`OPC-UA connectors started for: ${codes.join(', ')}`);
+  } catch (err) {
+    console.warn('OPC-UA: tablas no listas, saltando conectores:', err.message);
   }
-
-  const codes = [];
-  for (const wc of workcells) {
-    const connector = new OpcuaConnector(wc);
-    connectors.set(wc.id, connector);
-    connector.connect();
-    codes.push(wc.code);
-  }
-
-  console.log(`OPC-UA connectors started for: ${codes.join(', ')}`);
 }
 
 function stopOpcuaConnectors() {

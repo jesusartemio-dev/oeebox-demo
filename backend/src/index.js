@@ -52,7 +52,7 @@ if (process.env.NODE_ENV === 'production') {
 // Simulator (solo en desarrollo con ENABLE_SIMULATOR=true)
 if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SIMULATOR === 'true') {
   const { startSimulator } = require('./engine/simulator');
-  startSimulator();
+  startSimulator().catch(err => console.warn('Simulator startup error:', err.message));
 }
 
 // PLC connectors (producción o ENABLE_MODBUS=true activa todos)
@@ -67,7 +67,7 @@ if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MODBUS === 'true
 
 // OEE Engine
 const { startEngine } = require('./engine/oee-calculator');
-startEngine();
+startEngine().catch(err => console.warn('OEE Engine startup error:', err.message));
 
 const PORT = process.env.PORT || 3000;
 

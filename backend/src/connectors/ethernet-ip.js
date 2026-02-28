@@ -180,24 +180,28 @@ class EthernetIPConnector {
 const connectors = new Map();
 
 async function startEthernetIPConnectors() {
-  const { rows: workcells } = await query(
-    "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'ethernet-ip'"
-  );
+  try {
+    const { rows: workcells } = await query(
+      "SELECT * FROM workcells WHERE active = true AND plc_protocol = 'ethernet-ip'"
+    );
 
-  if (workcells.length === 0) {
-    console.log('No EtherNet/IP workcells configured');
-    return;
+    if (workcells.length === 0) {
+      console.log('No EtherNet/IP workcells configured');
+      return;
+    }
+
+    const codes = [];
+    for (const wc of workcells) {
+      const connector = new EthernetIPConnector(wc);
+      connectors.set(wc.id, connector);
+      connector.connect();
+      codes.push(wc.code);
+    }
+
+    console.log(`EtherNet/IP connectors started for: ${codes.join(', ')}`);
+  } catch (err) {
+    console.warn('EtherNet/IP: tablas no listas, saltando conectores:', err.message);
   }
-
-  const codes = [];
-  for (const wc of workcells) {
-    const connector = new EthernetIPConnector(wc);
-    connectors.set(wc.id, connector);
-    connector.connect();
-    codes.push(wc.code);
-  }
-
-  console.log(`EtherNet/IP connectors started for: ${codes.join(', ')}`);
 }
 
 function stopEthernetIPConnectors() {
