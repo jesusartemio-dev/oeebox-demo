@@ -9,13 +9,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function doLogin(user, pass) {
     setError('');
     setLoading(true);
-
     try {
-      const { data } = await client.post('/auth/login', { username, password });
+      const { data } = await client.post('/auth/login', { username: user, password: pass });
       localStorage.setItem('oee_token', data.token);
       navigate('/');
     } catch (err) {
@@ -23,6 +21,17 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    doLogin(username, password);
+  }
+
+  async function handleDemo() {
+    setUsername('admin');
+    setPassword('admin123');
+    doLogin('admin', 'admin123');
   }
 
   return (
@@ -58,6 +67,24 @@ export default function Login() {
           className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white font-medium rounded transition-colors"
         >
           {loading ? 'Ingresando...' : 'Ingresar'}
+        </button>
+
+        <div className="relative my-4">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-600"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="bg-gray-800 px-2 text-gray-500">o</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleDemo}
+          disabled={loading}
+          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50 text-white font-medium rounded transition-colors"
+        >
+          🚀 Acceder a Demo
         </button>
       </form>
     </div>
