@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { WS_URL } from '../config';
 
-export default function useWebSocket(url = `ws://${window.location.host}/ws`) {
+export default function useWebSocket(url = WS_URL) {
   const [data, setData] = useState(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);

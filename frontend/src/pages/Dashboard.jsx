@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
 import client from '../api/client';
+import { API_URL } from '../config';
 
 // ── Gauge SVG ──────────────────────────────────────────────
 function Gauge({ value = 0, label, size = 160 }) {
@@ -902,7 +903,7 @@ function ReportModal({ workcellId, onClose, onToast }) {
     if (onToast) onToast('Generando PDF...', 'success');
     try {
       const token = localStorage.getItem('oee_token');
-      const response = await fetch(`/api/reports/pdf/${workcellId}?period=${period}&date=${date}`, {
+      const response = await fetch(`${API_URL}/api/reports/pdf/${workcellId}?period=${period}&date=${date}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error('Error al generar PDF');

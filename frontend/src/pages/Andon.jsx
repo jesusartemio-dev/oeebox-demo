@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { API_URL, WS_URL } from '../config';
 
 // ── WebSocket directo (sin auth) ──────────────────────────
 function useAndonWebSocket() {
@@ -10,7 +11,7 @@ function useAndonWebSocket() {
 
   useEffect(() => {
     function connect() {
-      const ws = new WebSocket(`ws://${window.location.host}/ws`);
+      const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
@@ -311,7 +312,7 @@ function usePlantInfo() {
   const [info, setInfo] = useState(null);
 
   useEffect(() => {
-    fetch('/api/config/plant-info')
+    fetch(`${API_URL}/api/config/plant-info`)
       .then(r => r.json())
       .then(setInfo)
       .catch(() => {});
