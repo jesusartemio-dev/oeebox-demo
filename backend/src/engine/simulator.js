@@ -1,33 +1,39 @@
 const { query } = require('../db/connection');
 
+const TICK_MS = 6000; // 6 segundos entre ticks
+
 // Estado interno por workcell
 const state = {
   L01: {
     workcellCode: 'L01',
     workcellId: null,
-    basePartCount: 1000,
-    goodPartsRatio: 0.97,
+    totalParts: 0,
+    goodParts: 0,
+    scrapParts: 0,
     machineRunning: true,
     faultActive: false,
     faultCode: 0,
     currentShiftId: null,
     currentPartId: null,
+    idealCycleTime: null,
     partIds: [],
-    starvedUntil: 0,
+    faultTicksLeft: 0,
     currentEventId: null,
   },
   L02: {
     workcellCode: 'L02',
     workcellId: null,
-    basePartCount: 500,
-    goodPartsRatio: 0.98,
+    totalParts: 0,
+    goodParts: 0,
+    scrapParts: 0,
     machineRunning: true,
     faultActive: false,
     faultCode: 0,
     currentShiftId: null,
     currentPartId: null,
+    idealCycleTime: null,
     partIds: [],
-    starvedUntil: 0,
+    faultTicksLeft: 0,
     currentEventId: null,
   },
 };
@@ -56,7 +62,13 @@ async function getCurrentShiftId(workcellId) {
 function pickPartId(wc) {
   if (wc.partIds.length === 0) return null;
   const slot = Math.floor(new Date().getHours() / 2) % wc.partIds.length;
-  return wc.partIds[slot];
+  return wc.partIds[slot].id;
+}
+
+function pickIdealCycleTime(wc) {
+  if (wc.partIds.length === 0) return 12;
+  const slot = Math.floor(new Date().getHours() / 2) % wc.partIds.length;
+  return wc.partIds[slot].idealCycleTime;
 }
 
 // Inicializa workcell_id y part_ids desde la DB
@@ -69,10 +81,26 @@ async function initWorkcell(wc) {
   wc.workcellId = wcRows[0].id;
 
   const { rows: partRows } = await query(
-    'SELECT id FROM part_numbers WHERE workcell_id = $1 AND active = true ORDER BY id',
+    'SELECT id, ideal_cycle_time FROM part_numbers WHERE workcell_id = $1 AND active = true ORDER BY id',
     [wc.workcellId]
   );
-  wc.partIds = partRows.map(r => r.id);
+  wc.partIds = partRows.map(r => ({ id: r.id, idealCycleTime: r.ideal_cycle_time }));
+
+  // Inicializar conteo base desde plc_state existente (para no resetear en cada deploy)
+  const { rows: plcRows } = await query(
+    'SELECT raw_total_parts, raw_good_parts, raw_scrap_parts FROM plc_state WHERE workcell_id = $1',
+    [wc.workcellId]
+  );
+  if (plcRows.length > 0 && plcRows[0].raw_total_parts > 0) {
+    wc.totalParts = plcRows[0].raw_total_parts;
+    wc.goodParts = plcRows[0].raw_good_parts;
+    wc.scrapParts = plcRows[0].raw_scrap_parts;
+  } else {
+    // Seed inicial para que no empiece en 0
+    wc.totalParts = 800 + Math.floor(Math.random() * 400);
+    wc.goodParts = Math.floor(wc.totalParts * 0.97);
+    wc.scrapParts = wc.totalParts - wc.goodParts;
+  }
 
   return true;
 }
@@ -80,14 +108,12 @@ async function initWorkcell(wc) {
 // Abre un evento de paro en la DB
 async function openEvent(wc, eventType) {
   try {
-    console.log('EVENT OPEN:', wc.workcellId, eventType, 'faultCode:', wc.faultCode);
     const { rows } = await query(`
       INSERT INTO events (workcell_id, started_at, event_type, fault_code, fault_code_raw, source)
       VALUES ($1, NOW(), $2, $3, $4, 'plc')
       RETURNING id
     `, [wc.workcellId, eventType, wc.faultCode ? `Fault Code ${wc.faultCode}` : null, wc.faultCode || null]);
     wc.currentEventId = rows[0].id;
-    console.log('EVENT OPEN OK: id =', wc.currentEventId);
   } catch (err) {
     console.error('Event INSERT error:', err.message);
   }
@@ -97,80 +123,73 @@ async function openEvent(wc, eventType) {
 async function closeEvent(wc) {
   if (wc.currentEventId === null) return;
   try {
-    console.log('EVENT CLOSE:', wc.workcellId, 'eventId:', wc.currentEventId);
     await query(`
       UPDATE events SET
         ended_at = NOW(),
         duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))
       WHERE id = $1
     `, [wc.currentEventId]);
-    console.log('EVENT CLOSE OK: id =', wc.currentEventId);
     wc.currentEventId = null;
   } catch (err) {
     console.error('Event UPDATE error:', err.message);
   }
 }
 
-// Simula un tick (1 segundo) para una workcell
+// Simula un tick para una workcell
 async function tick(wc) {
-  const now = Date.now();
   const wasRunning = wc.machineRunning;
+  const tickSeconds = TICK_MS / 1000;
 
-  // Starved: máquina parada temporalmente
-  if (wc.starvedUntil > now) {
-    wc.machineRunning = false;
-  } else if (wc.starvedUntil > 0 && now >= wc.starvedUntil) {
-    wc.starvedUntil = 0;
-    if (!wc.faultActive) wc.machineRunning = true;
+  // ── Resolver falla si ya pasaron los ticks ──
+  if (wc.faultActive) {
+    wc.faultTicksLeft--;
+    if (wc.faultTicksLeft <= 0) {
+      wc.faultActive = false;
+      wc.faultCode = 0;
+      wc.machineRunning = true;
+    }
   }
 
-  // Resolver falla (10% probabilidad por segundo)
-  if (wc.faultActive && Math.random() < 0.10) {
-    wc.faultActive = false;
-    wc.faultCode = 0;
-    wc.machineRunning = true;
-  }
-
-  // Producir piezas si está corriendo
+  // ── Producir piezas si está corriendo ──
   if (wc.machineRunning) {
-    const parts = Math.floor(Math.random() * 3); // 0, 1 o 2
-    wc.basePartCount += parts;
+    const ict = pickIdealCycleTime(wc);
+    // Cuántas partes teóricas caben en este tick
+    const theoreticalParts = tickSeconds / ict;
+    // Producir entre 70-95% de las teóricas (esto genera performance en ese rango)
+    const perfFactor = 0.70 + Math.random() * 0.25;
+    const newParts = Math.max(1, Math.round(theoreticalParts * perfFactor));
 
-    // Variar levemente el ratio de calidad
-    wc.goodPartsRatio = 0.96 + Math.random() * 0.03;
+    // Calidad entre 95-99.5%
+    const qualityFactor = 0.95 + Math.random() * 0.045;
+    const newGood = Math.round(newParts * qualityFactor);
+    const newScrap = newParts - newGood;
+
+    wc.totalParts += newParts;
+    wc.goodParts += newGood;
+    wc.scrapParts += newScrap;
   }
 
-  // Activar falla (2% probabilidad)
-  if (wc.machineRunning && Math.random() < 0.02) {
+  // ── Activar falla aleatoria (4% por tick ≈ una falla cada ~2.5 min) ──
+  if (wc.machineRunning && !wc.faultActive && Math.random() < 0.04) {
     wc.machineRunning = false;
     wc.faultActive = true;
     wc.faultCode = Math.floor(Math.random() * 10) + 1;
+    // Falla dura 2-5 ticks (12-30 segundos)
+    wc.faultTicksLeft = 2 + Math.floor(Math.random() * 4);
   }
 
-  // Simular starved (0.5% probabilidad)
-  if (wc.machineRunning && Math.random() < 0.005) {
-    wc.starvedUntil = now + 30000;
-    wc.machineRunning = false;
-  }
-
-  // Registrar eventos de paro
+  // ── Registrar eventos de paro ──
   if (wasRunning && !wc.machineRunning) {
-    const eventType = wc.faultActive ? 'fault' : 'starved';
-    await openEvent(wc, eventType);
+    await openEvent(wc, 'fault');
   } else if (!wasRunning && wc.machineRunning) {
     await closeEvent(wc);
   }
 
-  // Calcular partes
-  const totalParts = wc.basePartCount;
-  const goodParts = Math.floor(totalParts * wc.goodPartsRatio);
-  const scrapParts = totalParts - goodParts;
-
-  // Actualizar shift y part
+  // ── Actualizar shift y part ──
   wc.currentShiftId = await getCurrentShiftId(wc.workcellId);
   wc.currentPartId = pickPartId(wc);
 
-  // UPSERT plc_state
+  // ── UPSERT plc_state ──
   await query(`
     INSERT INTO plc_state (
       workcell_id, machine_running, fault_active, fault_code, connected,
@@ -190,7 +209,7 @@ async function tick(wc) {
       last_update      = NOW()
   `, [
     wc.workcellId, wc.machineRunning, wc.faultActive, wc.faultCode,
-    totalParts, goodParts, scrapParts,
+    wc.totalParts, wc.goodParts, wc.scrapParts,
     wc.currentShiftId, wc.currentPartId,
   ]);
 }
@@ -212,7 +231,7 @@ async function startSimulator() {
     return;
   }
 
-  console.log(`Simulator started for ${active.length} workcell(s): ${active.map(w => w.workcellCode).join(', ')}`);
+  console.log(`Simulator started for ${active.length} workcell(s): ${active.map(w => w.workcellCode).join(', ')} — tick every ${TICK_MS / 1000}s`);
 
   intervalId = setInterval(async () => {
     for (const wc of active) {
@@ -222,7 +241,7 @@ async function startSimulator() {
         console.error(`Simulator tick error (${wc.workcellCode}):`, err.message);
       }
     }
-  }, 1000);
+  }, TICK_MS);
 }
 
 function stopSimulator() {

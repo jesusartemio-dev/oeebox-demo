@@ -49,8 +49,8 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Simulator (solo en desarrollo con ENABLE_SIMULATOR=true)
-if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SIMULATOR === 'true') {
+// Simulator (cualquier entorno con ENABLE_SIMULATOR=true)
+if (process.env.ENABLE_SIMULATOR === 'true') {
   const { startSimulator } = require('./engine/simulator');
   startSimulator().catch(err => console.warn('Simulator startup error:', err.message));
 }
