@@ -76,7 +76,9 @@ const { startWebSocket } = require('./websocket/server');
 
 // License validation
 global.licenseInfo = validateLicense();
-if (global.licenseInfo.valid) {
+if (global.licenseInfo.demo) {
+  console.log(`Running in DEMO mode — all features enabled`);
+} else if (global.licenseInfo.valid) {
   const expires = new Date(global.licenseInfo.expiresAt).toLocaleDateString('es-MX');
   console.log(`License valid for: ${global.licenseInfo.companyName} - expires: ${expires}`);
 } else {

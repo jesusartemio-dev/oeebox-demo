@@ -14,6 +14,10 @@ function getLicenseInfo() {
     : path.resolve(process.cwd(), 'license.key');
 
   if (!fs.existsSync(licensePath)) {
+    // En producción sin license.key → modo demo (todas las funciones habilitadas)
+    if (process.env.NODE_ENV === 'production') {
+      return { valid: true, demo: true, reason: 'Demo mode (no license file)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+    }
     return { valid: false, reason: 'No license file found' };
   }
 
