@@ -83,7 +83,7 @@ if (global.licenseInfo.valid) {
   console.warn(`Running in READ-ONLY mode: ${global.licenseInfo.reason}`);
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`OEE Box Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   startWebSocket(server);
