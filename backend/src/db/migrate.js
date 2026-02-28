@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('./connection');
@@ -10,11 +11,10 @@ async function migrate() {
     await pool.query(sql);
     console.log('Migration completed successfully');
   } catch (err) {
-    console.error('Migration failed:', err);
-    throw err;
+    console.error('Migration failed (server will continue):', err.message);
   } finally {
     await pool.end();
   }
 }
 
-migrate().then(() => process.exit(0)).catch(() => process.exit(1));
+migrate().then(() => process.exit(0));
