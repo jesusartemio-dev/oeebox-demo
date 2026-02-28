@@ -8,34 +8,59 @@ const { machineIdSync } = require('node-machine-id');
  * Retorna objeto con valid: true/false y datos o reason.
  */
 function getLicenseInfo() {
-  // 1. Leer archivo license.key
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // 1. Buscar archivo license.key
   const licensePath = process.env.LICENSE_FILE
     ? path.resolve(process.env.LICENSE_FILE)
     : path.resolve(process.cwd(), 'license.key');
 
-  if (!fs.existsSync(licensePath)) {
-    // En producción sin license.key → modo demo (todas las funciones habilitadas)
-    if (process.env.NODE_ENV === 'production') {
-      return { valid: true, demo: true, reason: 'Demo mode (no license file)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
-    }
+  const fileExists = fs.existsSync(licensePath);
+
+  // En producción sin license.key → modo demo completo
+  if (!fileExists && isProduction) {
+    return { valid: true, demo: true, reason: 'Demo mode (no license file)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+  }
+
+  if (!fileExists) {
     return { valid: false, reason: 'No license file found' };
   }
 
   const token = fs.readFileSync(licensePath, 'utf-8').trim();
+  if (!token) {
+    if (isProduction) {
+      return { valid: true, demo: true, reason: 'Demo mode (empty license file)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+    }
+    return { valid: false, reason: 'License file is empty' };
+  }
 
   // 2. Obtener machine ID actual
-  const machineId = machineIdSync();
+  let machineId;
+  try {
+    machineId = machineIdSync();
+  } catch {
+    if (isProduction) {
+      return { valid: true, demo: true, reason: 'Demo mode (cannot read machine ID)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+    }
+    return { valid: false, reason: 'Cannot read machine ID' };
+  }
 
   // 3. Verificar firma JWT
   let license;
   try {
     license = jwt.verify(token, process.env.JWT_SECRET);
   } catch {
+    if (isProduction) {
+      return { valid: true, demo: true, reason: 'Demo mode (invalid license signature)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+    }
     return { valid: false, reason: 'Invalid license signature' };
   }
 
   // 4. Verificar machine ID
   if (license.machineId !== machineId) {
+    if (isProduction) {
+      return { valid: true, demo: true, reason: 'Demo mode (machine ID mismatch)', companyName: process.env.COMPANY_NAME || 'Demo', customerName: 'Demo', expiresAt: null, maxWorkcells: null };
+    }
     return { valid: false, reason: 'License not valid for this machine' };
   }
 
